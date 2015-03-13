@@ -24,7 +24,7 @@ import re
 import cookielib
 import util
 from provider import ContentProvider
-import lxml.html
+from bs4 import BeautifulSoup
 
 
 class SledujuserialyContentProvider(ContentProvider):
@@ -34,61 +34,68 @@ class SledujuserialyContentProvider(ContentProvider):
         urllib2.install_opener(opener)
 
     def capabilities(self):
-        return ['resolve', 'cagetories', '!download']
+        return ['resolve', 'categories', 'download']
+
+    def parse_page(self, url=''):
+        return BeautifulSoup(util.request(self._url(url)))
 
     def categories(self):
         result = []
-        for category in lxml.html.fromstring(urllib2.urlopen(self.base_url).read()) \
-                .xpath('//div[@id="seznam_vyber"]/table/tr/td/div'):
+        for series in self.parse_page().select('#seznam_vyber .menu_vyber .menu_click'):
+            url = None
+            if series.a:
+                url = series.a.get('href')
             item = self.dir_item()
-            item['title'] = category.text_content().encode('utf-8').strip('» ')
-            url = category.xpath('./a')
-            item['url'] = url[0].attrib['href'] if len(url) > 0 else '/'
+            item['title'] = series.text.encode('utf-8').strip('» ')
+            item['url'] = url if url else '/'
             result.append(item)
         return result
 
     def list(self, url):
-        if url.count('/') == 1:
-            return self.list_series(url)
-        return self.list_episodes(url)
+        if url.count('/') > 1:
+            return self.list_episodes(url)
+        return self.list_seasons(url)
 
-    def list_series(self, url):
+    def list_seasons(self, url):
         result = []
-        for serie in lxml.html.fromstring(urllib2.urlopen(self.base_url + url).read()) \
-                .xpath('//div[@class="levy_blok"]/div'):
+        for season in self.parse_page(url).select('.levy_blok .serie'):
             item = self.dir_item()
-            item['title'] = serie.text_content().encode('utf-8')
-            item['url'] = re.findall(r'\'([^\']*)\'', serie.attrib['onclick'])[0]
+            item['title'] = season.text
+            item['url'] = re.search(r'\'([^\']*)\'', season.get('onclick')).group(1)
             result.append(item)
         return result
 
     def list_episodes(self, url):
         result = []
-        got_next = True
-        while got_next:
-            root = lxml.html.fromstring(urllib2.urlopen(self.base_url + url).read())
-            for episode in root.xpath('//div[@class="pravy_blok"]/center/div[@class="nadpis"]/h2/a'):
+        has_next = True
+        while has_next:
+            tree = self.parse_page(url)
+            for episode in tree.select('.pravy_blok .uvodni_video'):
                 item = self.video_item()
-                item['title'] = episode.text.encode('utf-8').strip()
-                item['url'] = episode.attrib['href']
-                item['img'] = re.findall(r'\([^)].*\)', episode.xpath(
-                    '../../following-sibling::div[@class="uvodni_video"]')[0].attrib['style'])[0].strip('()')
+                item['title'] = episode.a.img.get('title')
+                item['url'] = episode.a.get('href')
+                item['img'] = self._url(re.search(r'url\(([^\)]+)\)', episode.get('style')).group(1))
                 result.append(item)
-            for next in root.xpath('//div[@class="pravy_blok"]/center/table[@class="strankovanicko"]/tr/td/div' +
-                                   '[@class="strank_bg vice_pad"]/a'):
-                if next.attrib['title'].encode('utf-8') == 'Dále':
-                    url = next.attrib['href']
-                    got_next = True
+            for next_page in tree.select('.pravy_blok .strankovanicko .strank_bg.vice_pad a'):
+                if next_page.get('title').encode('utf-8') == 'Dále':
+                    url = next_page.get('href')
+                    has_next = True
                     break
-                got_next = False
-        return result[::-1]
+                has_next = False
+        result.reverse()
+        return result
 
     def resolve(self, item, captcha_cb=None, select_cb=None):
-        url = self._url(item['url'])
-        data = util.substr(util.request(url), '<a name=\"video\"', '<div class=\"line_line')
-        result = self.findstreams(data + url, ['<embed( )src=\"(?P<url>[^\"]+)', '<object(.+?)data=\"(?P<url>[^\"]+)',
-                                               '<iframe(.+?)src=[\"\'](?P<url>.+?)[\'\"]',
-                                               '<object.*?data=(?P<url>.+?)</object>'])
+        streams = []
+        for stream in self.parse_page(item['url']).select('.pravy_blok .posun_video div')[0].find_all(
+                ['embed', 'object', 'iframe']):
+            src = stream.get('src')
+            if src:
+                streams.append(src)
+            data = stream.get('data')
+            if data:
+                streams.append(data)
+        result = self.findstreams('\n'.join(streams), ['(?P<url>[^\n]+)'])
         if len(result) == 1:
             return result[0]
         elif len(result) > 1 and select_cb:
