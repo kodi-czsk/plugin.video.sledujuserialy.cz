@@ -1,5 +1,5 @@
 # -*- coding: UTF-8 -*-
-#/*
+# /*
 # *      Copyright (C) 2012 Libor Zoubek
 # *
 # *
@@ -19,25 +19,27 @@
 # *  http://www.gnu.org/copyleft/gpl.html
 # *
 # */
-import urllib2,re,os,sys,cookielib
+import urllib2
+import re
+import cookielib
 import util
 from provider import ContentProvider
 import lxml.html
 
-class SledujuserialyContentProvider(ContentProvider):
 
+class SledujuserialyContentProvider(ContentProvider):
     def __init__(self, username=None, password=None, filter=None, tmp_dir='.'):
         ContentProvider.__init__(self, 'sledujuserialy.cz', 'http://www.sledujuserialy.cz', username, password, filter)
         opener = urllib2.build_opener(urllib2.HTTPCookieProcessor(cookielib.LWPCookieJar()))
         urllib2.install_opener(opener)
 
     def capabilities(self):
-        return [ 'resolve', 'cagetories', '!download' ]
+        return ['resolve', 'cagetories', '!download']
 
     def categories(self):
         result = []
         for category in lxml.html.fromstring(urllib2.urlopen(self.base_url).read()) \
-            .xpath('//div[@id="seznam_vyber"]/table/tr/td/div'):
+                .xpath('//div[@id="seznam_vyber"]/table/tr/td/div'):
             item = self.dir_item()
             item['title'] = category.text_content().encode('utf-8').strip('» ')
             url = category.xpath('./a')
@@ -53,7 +55,7 @@ class SledujuserialyContentProvider(ContentProvider):
     def list_series(self, url):
         result = []
         for serie in lxml.html.fromstring(urllib2.urlopen(self.base_url + url).read()) \
-            .xpath('//div[@class="levy_blok"]/div'):
+                .xpath('//div[@class="levy_blok"]/div'):
             item = self.dir_item()
             item['title'] = serie.text_content().encode('utf-8')
             item['url'] = re.findall(r'\'([^\']*)\'', serie.attrib['onclick'])[0]
@@ -69,10 +71,11 @@ class SledujuserialyContentProvider(ContentProvider):
                 item = self.video_item()
                 item['title'] = episode.text.encode('utf-8').strip()
                 item['url'] = episode.attrib['href']
-                item['img'] = re.findall(r'\([^)].*\)', episode.xpath('../../following-sibling::div[@class="uvodni_video"]')[0] \
-                    .attrib['style'])[0].strip('()')
+                item['img'] = re.findall(r'\([^)].*\)', episode.xpath(
+                    '../../following-sibling::div[@class="uvodni_video"]')[0].attrib['style'])[0].strip('()')
                 result.append(item)
-            for next in root.xpath('//div[@class="pravy_blok"]/center/table[@class="strankovanicko"]/tr/td/div[@class="strank_bg vice_pad"]/a'):
+            for next in root.xpath('//div[@class="pravy_blok"]/center/table[@class="strankovanicko"]/tr/td/div' +
+                                   '[@class="strank_bg vice_pad"]/a'):
                 if next.attrib['title'].encode('utf-8') == 'Dále':
                     url = next.attrib['href']
                     got_next = True
@@ -83,7 +86,9 @@ class SledujuserialyContentProvider(ContentProvider):
     def resolve(self, item, captcha_cb=None, select_cb=None):
         url = self._url(item['url'])
         data = util.substr(util.request(url), '<a name=\"video\"', '<div class=\"line_line')
-        result = self.findstreams(data + url, [ '<embed( )src=\"(?P<url>[^\"]+)', '<object(.+?)data=\"(?P<url>[^\"]+)', '<iframe(.+?)src=[\"\'](?P<url>.+?)[\'\"]', '<object.*?data=(?P<url>.+?)</object>' ])
+        result = self.findstreams(data + url, ['<embed( )src=\"(?P<url>[^\"]+)', '<object(.+?)data=\"(?P<url>[^\"]+)',
+                                               '<iframe(.+?)src=[\"\'](?P<url>.+?)[\'\"]',
+                                               '<object.*?data=(?P<url>.+?)</object>'])
         if len(result) == 1:
             return result[0]
         elif len(result) > 1 and select_cb:
